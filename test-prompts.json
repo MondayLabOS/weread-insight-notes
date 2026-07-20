@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1,
+    "prompt": "帮我把《金钱心理学》的微信读书划线、我的笔记、我点赞的观点整理成 Markdown，按大章节和二级分类排版。",
+    "expected": "解析书籍，导出 highlights、personal notes、user-liked viewpoints，生成 highlight-first Markdown/JSON/XML，不主动创建飞书文档。"
+  },
+  {
+    "id": 2,
+    "prompt": "这本书只要本地 XML/JSON/Markdown，不要创建飞书文档；不要时间、位置、链接和分割线。",
+    "expected": "只运行导出脚本并返回 XML/JSON/Markdown 路径，不调用 lark-cli 创建或更新文档。"
+  },
+  {
+    "id": 3,
+    "prompt": "更新这个飞书文档：<doc_url>。划线优先，笔记和我点赞的观点都放引用块里，别人的评论不要放。",
+    "expected": "使用现有 doc token 执行 overwrite update；包含我的笔记和 isLike=1 的观点，排除他人评论与互动计数。"
+  },
+  {
+    "id": 4,
+    "prompt": "整理成 Obsidian 能直接放进 vault 的 Markdown。",
+    "expected": "生成通用 Markdown，保留章节、二级分类、编号条目和引用块，不包含飞书专用 XML 或授权步骤。"
+  }
+]
