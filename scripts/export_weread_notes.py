@@ -12,11 +12,14 @@ import re
 import subprocess
 import sys
 import urllib.request
+from urllib.parse import quote as quote_path
 from pathlib import Path
+
+from image_manifest import image_key, prepare_images
 
 
 API = "https://i.weread.qq.com/api/agent/gateway"
-SKILL_VERSION = "1.0.3"
+SKILL_VERSION = os.environ.get("WEREAD_SKILL_VERSION", "1.0.4")
 
 
 def api_key() -> str:
@@ -208,7 +211,8 @@ def build_records(book_id: str, include_liked: bool, key: str) -> tuple[dict, li
     return bookmarks.get("book") or {"bookId": book_id}, highlights, reviews, liked, {"chapters": chapters}
 
 
-def build_xml(book: dict, highlights: list[dict], reviews: list[dict], liked: list[dict]) -> str:
+def build_xml(book: dict, highlights: list[dict], reviews: list[dict], liked: list[dict], images_by_key: dict | None = None) -> str:
+    images_by_key = images_by_key or {}
     thoughts_by_key: dict[tuple, list[dict]] = collections.defaultdict(list)
     for review in reviews:
         thoughts_by_key[(review.get("chapterUid"), review.get("range"))].append(review)
@@ -237,6 +241,7 @@ def build_xml(book: dict, highlights: list[dict], reviews: list[dict], liked: li
                 "notes": [note.get("content") for note in notes if note.get("content")],
                 "liked": liked_by_key.get(match_key, []),
                 "sub": highlight.get("chapterTitle") or "",
+                "images": images_by_key.get(image_key(highlight["chapterUid"], highlight["range"]), []) if highlight.get("chapterUid") is not None and highlight.get("range") else [],
             }
         )
 
@@ -252,6 +257,7 @@ def build_xml(book: dict, highlights: list[dict], reviews: list[dict], liked: li
                 "notes": [note.get("content")] if note.get("content") else [],
                 "liked": liked_by_key.get(match_key, []),
                 "sub": note.get("chapterTitle") or "",
+                "images": images_by_key.get(image_key(note["chapterUid"], note["range"]), []) if note.get("chapterUid") is not None and note.get("range") else [],
             }
         )
 
@@ -274,6 +280,8 @@ def build_xml(book: dict, highlights: list[dict], reviews: list[dict], liked: li
             for record in category_records:
                 label = "原文划线" if record.get("kind") == "highlight" else "关联原文"
                 body = f"<p><b>{label}：</b>{esc(record.get('highlight'))}</p>" if record.get("highlight") else ""
+                for image in record.get("images", []):
+                    body += f'<img path="@./{html.escape(image["localPath"], quote=True)}"/>'
                 for note in record.get("notes", []):
                     body += f"<blockquote><b>我的笔记：</b>{esc(note)}</blockquote>"
                 for viewpoint in record.get("liked", []):
@@ -284,7 +292,8 @@ def build_xml(book: dict, highlights: list[dict], reviews: list[dict], liked: li
     return "\n".join(parts)
 
 
-def build_markdown(book: dict, highlights: list[dict], reviews: list[dict], liked: list[dict]) -> str:
+def build_markdown(book: dict, highlights: list[dict], reviews: list[dict], liked: list[dict], images_by_key: dict | None = None) -> str:
+    images_by_key = images_by_key or {}
     thoughts_by_key: dict[tuple, list[dict]] = collections.defaultdict(list)
     for review in reviews:
         thoughts_by_key[(review.get("chapterUid"), review.get("range"))].append(review)
@@ -313,6 +322,7 @@ def build_markdown(book: dict, highlights: list[dict], reviews: list[dict], like
                 "notes": [note.get("content") for note in notes if note.get("content")],
                 "liked": liked_by_key.get(match_key, []),
                 "sub": highlight.get("chapterTitle") or "",
+                "images": images_by_key.get(image_key(highlight["chapterUid"], highlight["range"]), []) if highlight.get("chapterUid") is not None and highlight.get("range") else [],
             }
         )
 
@@ -328,6 +338,7 @@ def build_markdown(book: dict, highlights: list[dict], reviews: list[dict], like
                 "notes": [note.get("content")] if note.get("content") else [],
                 "liked": liked_by_key.get(match_key, []),
                 "sub": note.get("chapterTitle") or "",
+                "images": images_by_key.get(image_key(note["chapterUid"], note["range"]), []) if note.get("chapterUid") is not None and note.get("range") else [],
             }
         )
 
@@ -357,11 +368,15 @@ def build_markdown(book: dict, highlights: list[dict], reviews: list[dict], like
                 label = "原文划线" if record.get("kind") == "highlight" else "关联原文"
                 highlight = record.get("highlight") or "（空内容）"
                 parts.append(f"{index}. {label}：{highlight}")
+                indent = " " * (len(str(index)) + 2)
+                for image in record.get("images", []):
+                    caption = norm(image["caption"]).replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+                    parts.extend(["", f'{indent}![{caption}]({quote_path(image["localPath"])})', ""])
                 for note in record.get("notes", []):
-                    parts.append(quote("我的笔记", note))
+                    parts.append("\n".join(indent + line for line in quote("我的笔记", note).splitlines()))
                 for viewpoint in record.get("liked", []):
                     author = f"（{viewpoint.get('authorName')}）" if viewpoint.get("authorName") else ""
-                    parts.append(quote(f"我点赞的观点{author}", viewpoint.get("content") or ""))
+                    parts.append("\n".join(indent + line for line in quote(f"我点赞的观点{author}", viewpoint.get("content") or "").splitlines()))
                 parts.append("")
     return "\n".join(parts).rstrip() + "\n"
 
@@ -372,24 +387,42 @@ def main() -> int:
     parser.add_argument("--title", default="")
     parser.add_argument("--out-dir", default="exports")
     parser.add_argument("--include-liked", action="store_true")
+    parser.add_argument("--input-json", type=Path, help="Re-render an existing export without calling WeRead.")
+    parser.add_argument("--image-manifest", type=Path, help="Confirmed original images keyed by chapterUid + range.")
     args = parser.parse_args()
 
-    key = api_key()
     out_dir = Path(args.out_dir)
+    previous = {}
+    if args.input_json:
+        previous = json.loads(args.input_json.read_text(encoding="utf-8"))
+        book = previous["book"]
+        if str(book.get("bookId")) != args.book_id:
+            parser.error("Input JSON bookId does not match --book-id.")
+        highlights, reviews = previous["highlights"], previous["personalThoughts"]
+        liked, meta = previous.get("likedViewpoints", []), previous.get("meta", {})
+    else:
+        book, highlights, reviews, liked, meta = build_records(args.book_id, args.include_liked, api_key())
+    images_by_key, images = {}, []
+    if args.image_manifest:
+        manifest = json.loads(args.image_manifest.read_text(encoding="utf-8"))
+        images_by_key, images = prepare_images(manifest, args.image_manifest.parent, args.book_id, highlights, reviews, out_dir)
+    elif previous.get("images"):
+        manifest = {"bookId": args.book_id, "images": previous["images"]}
+        images_by_key, images = prepare_images(manifest, args.input_json.parent, args.book_id, highlights, reviews, out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    book, highlights, reviews, liked, meta = build_records(args.book_id, args.include_liked, key)
     base_name = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff._-]+", "-", args.title or book.get("title") or args.book_id).strip("-")
     export = {"book": book, "highlights": highlights, "personalThoughts": reviews, "likedViewpoints": liked, "meta": meta}
+    if images:
+        export["images"] = images
 
     json_path = out_dir / f"{base_name}-weread-notes.json"
     xml_path = out_dir / f"{base_name}-notes.xml"
     md_path = out_dir / f"{base_name}-insight-notes.md"
 
     json_path.write_text(json.dumps(export, ensure_ascii=False, indent=2), encoding="utf-8")
-    xml_path.write_text(build_xml(book, highlights, reviews, liked), encoding="utf-8")
-    md_path.write_text(build_markdown(book, highlights, reviews, liked), encoding="utf-8")
-    print(json.dumps({"xml": str(xml_path), "json": str(json_path), "markdown": str(md_path), "highlights": len(highlights), "notes": len(reviews), "liked": len(liked)}, ensure_ascii=False, indent=2))
+    xml_path.write_text(build_xml(book, highlights, reviews, liked, images_by_key), encoding="utf-8")
+    md_path.write_text(build_markdown(book, highlights, reviews, liked, images_by_key), encoding="utf-8")
+    print(json.dumps({"xml": str(xml_path), "json": str(json_path), "markdown": str(md_path), "highlights": len(highlights), "notes": len(reviews), "liked": len(liked), "images": len(images)}, ensure_ascii=False, indent=2))
     return 0
 
 

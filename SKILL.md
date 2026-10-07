@@ -1,6 +1,6 @@
 ---
 name: weread-insight-notes
-description: 将微信读书的划线、个人笔记、本人点赞过的观点沉淀成结构化洞察笔记。适用于整理微信读书划线/笔记/书评/点赞观点、按章节分类、生成 Markdown/JSON/XML、同步到飞书/Obsidian/WPS 笔记/知识库、把读书笔记做成文档或思维导图。
+description: 将微信读书的划线、个人笔记、本人点赞过的观点及划线对应原图沉淀成结构化洞察笔记。适用于整理读书笔记、补齐插图、生成 Markdown/JSON/XML，以及同步到飞书、Obsidian 或其他知识库。
 ---
 
 # 微信读书洞察笔记
@@ -15,6 +15,7 @@ description: 将微信读书的划线、个人笔记、本人点赞过的观点�
 ## 二级分类
 
 1. 原文划线：用户在微信读书划过的原文
+   [对应的原书插图，如有]
    > 我的笔记：用户自己写在这条划线上的想法
    > 我点赞的观点（作者）：用户自己点过赞的观点
 ```
@@ -25,7 +26,8 @@ description: 将微信读书的划线、个人笔记、本人点赞过的观点�
 - `WEREAD_API_KEY` 已写入环境变量或 macOS 用户会话，可用 `launchctl getenv WEREAD_API_KEY` 检查。
 - 只生成本地 Markdown/JSON/XML 时，不需要飞书授权。
 - 如果要发布到飞书，`lark-cli` 必须已配置到目标飞书租户，并完成用户身份授权。
-- 飞书文档使用 docs v2 命令：`lark-cli docs +create|+update --api-version v2`。
+- 飞书文档使用 `lark-cli docs +create|+update`；以当前安装版本的帮助和文档技能为准，不照搬旧版本的 `--api-version v2` 参数。
+- 需要补齐原图而 API 没有图片资源时，使用环境中可用的浏览器技能和用户已授权的微信读书阅读页。没有阅读权限的图片保留为待补齐项。
 
 如果飞书授权因为租户不匹配而失败，不要为了省事改用 bot 身份创建文档，除非用户明确接受文档创建到 bot 应用所在租户。默认应重新配置 `lark-cli` 到目标租户。
 
@@ -45,6 +47,8 @@ description: 将微信读书的划线、个人笔记、本人点赞过的观点�
    - 脚本会输出 Markdown、JSON、XML 到指定目录。
    - 当用户要求包含“我点赞过的观点”时，使用 `--include-liked`。
 
+   检查插图线索。用户要求包含图片，或原文出现 `[插图]`、`U+FFFC` 时，阅读 [原图识别、导出与同步](references/image-sync.md)。先辨别插图和脚注，再把确认的原图按 `bookId + chapterUid + range` 绑定到记录；一条划线可以有多张原图。不要将整章图片都当成用户划线。
+
 4. 判断输出目标。
    - 用户没有指定目标时：只返回本地 Markdown/JSON/XML 文件路径。
    - 用户说 Obsidian：优先交付 Markdown，可放入用户指定 vault 或文件夹。
@@ -54,14 +58,19 @@ description: 将微信读书的划线、个人笔记、本人点赞过的观点�
 5. 发布到飞书时：
    - 新建文档：
      ```bash
-     lark-cli docs +create --api-version v2 --as user --doc-format xml --content @exports/<file>.xml --parent-position my_library
+     cd exports
+     lark-cli docs +create --as user --doc-format xml --content @./<file>.xml --parent-position my_library
      ```
-   - 更新已有文档：
+   - 追加到已有文档：先 fetch，生成不含 `<title>` 的追加片段，再执行：
      ```bash
-     lark-cli docs +update --api-version v2 --as user --doc <doc_token_or_url> --command overwrite --doc-format xml --content @exports/<file>.xml
+     cd exports
+     lark-cli docs +update --as user --doc <doc_token_or_url> --command append --doc-format xml --content @./<fragment>.xml
      ```
+   - 只补图片时按对应条目做局部更新，遵循 [图片同步参考](references/image-sync.md)；图片放在原文后、个人笔记和点赞观点前。
+   - 有图片的 XML 中 `@./images/...` 相对导出目录解析，运行发布命令时进入该目录，或按实际执行目录调整路径。
+   - 逐次 fetch 验证写入结果；整篇覆盖仅用于用户明确要求重建文档。
 
-6. 返回文件路径、发布链接和关键数量统计。
+6. 返回文件路径、发布链接和关键数量统计；包含图片时报告成功插入的原图数量及仍未补齐的记录。
 
 ## 默认理解用户需求
 
@@ -75,7 +84,7 @@ description: 将微信读书的划线、个人笔记、本人点赞过的观点�
 默认先生成本地 Markdown、JSON 和 XML；只有用户指定飞书时才创建或更新飞书文档。
 ```
 
-如果用户给了已有飞书文档 token 或 URL，确认这是目标文档后再覆盖更新。如果用户给的是本地文件夹路径，把 Markdown 写入该路径。如果用户要求新建飞书文档，在当前用户授权的目标租户里创建，并返回链接。
+用户提供飞书文档 token 或 URL 即指定了目标；结合用户要求选择追加或局部编辑，不默认覆盖，不重复索取已有授权。如果用户给的是本地文件夹路径，把 Markdown 写入该路径。如果用户要求新建飞书文档，在当前用户授权的目标租户里创建，并返回链接。
 
 ## 格式规则
 
@@ -84,6 +93,7 @@ description: 将微信读书的划线、个人笔记、本人点赞过的观点�
 - 二级分类使用 `h2`，根据书名、章节名、划线文本、个人笔记和点赞观点共同判断。
 - 除非用户明确要求可追溯信息，否则不要显示时间、range、位置或深度链接。
 - 每条记录优先展示原文划线。
+- 有对应原图时，把原图放进同一条记录，顺序为原文、图片、个人笔记、点赞观点。保留占位文本作为原始资料，不把脚注当图片，也不以截图、重画或生成图冒充原图。
 - 如果某条划线有匹配的个人笔记，即 `chapterUid + range` 一致，把笔记放到这条划线下面的引用块，标签为 `我的笔记`。
 - 如果某条个人笔记没有匹配到划线，保留为 `关联原文` 加 `我的笔记`，不要丢弃。
 - 当用户说“点赞”时，必须区分：
@@ -125,14 +135,15 @@ description: 将微信读书的划线、个人笔记、本人点赞过的观点�
 | `/book/readreviews` 调用失败 | 先继续生成划线和个人笔记版本，并说明“我点赞过的观点”未能纳入。 |
 | 用户指定的本地目录不存在 | 询问是否创建目录；不要静默写到其他位置。 |
 | 飞书授权指向错误租户 | 创建或更新文档前停止，让用户切换租户或应用授权。 |
-| 用户提供已有飞书文档 token | 确认目标无误后，才使用 `+update --command overwrite` 覆盖更新。 |
+| 用户提供已有飞书文档 token | fetch 现状，按用户要求追加或局部修改；不要默认 overwrite。 |
+| 只得到图片占位符，未取到原图 | 保留原文和心得，记录未补齐的 chapterUid/range 及原因；不猜测图片 URL 或图文对应关系。 |
 | XML 上传失败 | 保留已生成的 Markdown/XML/JSON 路径，并报告失败命令。 |
 
 ## 飞书授权与租户安全
 
 仅当用户明确要求发布到飞书时执行本节。
 
-- 写入飞书前，先检查 `lark-cli config show` 和 `lark-cli auth status`。
+- 写入飞书前，先检查 `lark-cli config show` 和 `lark-cli auth status`；有多个已授权 profile 时，优先选择能访问用户目标文档的 profile，并在 fetch/update 中保持一致。不要将本次会话的 profile 名或文档 token 写死到技能中。
 - 如果当前应用或用户在错误租户：
   - 只有在用户同意后，才清理旧配置：
     ```bash
@@ -164,6 +175,8 @@ description: 将微信读书的划线、个人笔记、本人点赞过的观点�
 2. `这本书只要本地 XML/JSON/Markdown，不要创建飞书文档；不要时间、位置、链接和分割线。`
 3. `更新这个飞书文档：<doc_url>。划线优先，笔记和我点赞的观点都放引用块里，别人的评论不要放。`
 4. `整理成 Obsidian 能直接放进 vault 的 Markdown。`
+5. `划线里有一些图片，帮我把原图补到已有飞书笔记的对应条目下，保留我的心得和编号，不要重复插入。`
+6. `用已导出的 JSON 和我核对过的图片清单生成带原图的 Markdown/XML，不重新调用微信读书。`
 
 ## 脚本
 
@@ -178,3 +191,5 @@ python3 ~/.codex/skills/weread-insight-notes/scripts/export_weread_notes.py \
 ```
 
 然后根据用户指定目标，返回本地文件路径，或用生成的 XML 创建/更新飞书文档。
+
+带原图的离线重导出使用 `--input-json` 与 `--image-manifest`，清单结构和用法见 [图片同步参考](references/image-sync.md)。脚本验证绑定、复制原图到输出目录，并生成含图片的 Markdown/JSON/XML；图片识别、阅读页导出和飞书局部编辑由该参考指导。

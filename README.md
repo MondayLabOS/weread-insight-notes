@@ -1,6 +1,6 @@
 # weread-insight-notes
 
-微信读书洞察笔记 skill：把微信读书里的划线、个人笔记、本人点赞过的观点，整理成结构化读书笔记。
+微信读书洞察笔记 skill：把微信读书里的划线、个人笔记、本人点赞过的观点及划线对应的原图，整理成结构化读书笔记。
 
 默认输出通用 `Markdown / JSON / XML`，不绑定飞书。用户指定目标时，可进一步同步到飞书、Obsidian、WPS 笔记或其他知识库。
 
@@ -17,6 +17,8 @@
 ```
 
 默认不显示时间、位置、range、跳转链接和分割线。
+
+遇到划线中的插图，先辨别插图与脚注，再从有阅读权限的页面导出原图，放在对应原文后、心得前。支持一条划线多张原图，以及向已有飞书笔记局部补图。图片定位、导出和校验流程见 [图片同步参考](references/image-sync.md)。
 
 ## 安装
 
@@ -82,6 +84,18 @@ python3 scripts/export_weread_notes.py \
 - `<书名>-insight-notes.md`
 - `<书名>-weread-notes.json`
 - `<书名>-notes.xml`
+
+已导出的 JSON 可结合人工核对的图片清单离线重导出，无需再次调用微信读书：
+
+```bash
+python3 scripts/export_weread_notes.py \
+  --book-id <bookId> \
+  --input-json <已有导出.json> \
+  --image-manifest <图片清单.json> \
+  --out-dir exports
+```
+
+原图保存到 `exports/images/`，Markdown/XML 在对应条目引用它们，JSON 保留图文绑定、来源和校验值。XML 的本地图片路径相对输出目录，发布到飞书时进入该目录执行命令。脚本负责本地生成；阅读页操作和远端文档编辑按 Skill 指导执行。
 
 ## 口径
 

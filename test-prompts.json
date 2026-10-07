@@ -12,11 +12,21 @@
   {
     "id": 3,
     "prompt": "更新这个飞书文档：<doc_url>。划线优先，笔记和我点赞的观点都放引用块里，别人的评论不要放。",
-    "expected": "使用现有 doc token 执行 overwrite update；包含我的笔记和 isLike=1 的观点，排除他人评论与互动计数。"
+    "expected": "先 fetch 目标文档，按用户要求追加或局部编辑，不默认 overwrite；包含我的笔记和 isLike=1 的观点，排除他人评论与互动计数。"
   },
   {
     "id": 4,
     "prompt": "整理成 Obsidian 能直接放进 vault 的 Markdown。",
     "expected": "生成通用 Markdown，保留章节、二级分类、编号条目和引用块，不包含飞书专用 XML 或授权步骤。"
+  },
+  {
+    "id": 5,
+    "prompt": "划线里有一些图片，帮我把原图补到已有飞书笔记的对应条目下，保留我的心得和编号，不要重复插入。",
+    "expected": "读取 image-sync 参考；辨别插图和脚注，通过阅读页确认原图，按 bookId/chapterUid/range 绑定；fetch 后局部插入对应条目，保留当前文字和编号，逐次验证并记录同步结果。"
+  },
+  {
+    "id": 6,
+    "prompt": "用已导出的 JSON 和我核对过的图片清单生成带原图的 Markdown/XML，不重新调用微信读书。",
+    "expected": "使用 --input-json 和 --image-manifest 离线生成；验证书籍和记录绑定，复制原图、保留所有心得和点赞观点，不调用远端文档写入。"
   }
 ]
